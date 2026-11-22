@@ -11,9 +11,7 @@ import { CalendarSection } from "./CalendarSection";
 import { GallerySection } from "./GallerySection";
 import { LocationSection } from "./LocationSection";
 import { RsvpSection } from "./RsvpSection";
-import { ContactSection } from "./ContactSection";
 import { AccountsSection } from "./AccountsSection";
-import { GuestSnapSection } from "./GuestSnapSection";
 import { GuestbookSection } from "./GuestbookSection";
 import { FooterSection } from "./FooterSection";
 import { useToast } from "./ToastProvider";
@@ -92,9 +90,7 @@ export function InvitationClient() {
             <GallerySection />
             <LocationSection />
             <RsvpSection />
-            <ContactSection />
             <AccountsSection />
-            <GuestSnapSection />
             <GuestbookSection />
             <FooterSection />
           </div>

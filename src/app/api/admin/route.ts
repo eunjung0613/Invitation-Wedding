@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
 import { getAdminDb, verifyAdminPassword } from "@/lib/firebaseAdmin";
 
 function normalizeTs(val: unknown): number {
@@ -36,10 +35,9 @@ export async function GET(request: NextRequest) {
   if (!db) return notConfigured();
 
   try {
-    const [rsvpSnap, gbSnap, snapSnap, settingsDoc] = await Promise.all([
+    const [rsvpSnap, gbSnap, settingsDoc] = await Promise.all([
       db.collection("rsvp").orderBy("createdAt", "desc").get(),
       db.collection("guestbook").orderBy("createdAt", "desc").get(),
-      db.collection("guestSnaps").orderBy("createdAt", "desc").get(),
       db.collection("settings").doc("public").get(),
     ]);
 
@@ -69,21 +67,9 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const snaps = snapSnap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        author: String(data.author ?? ""),
-        caption: String(data.caption ?? ""),
-        imageUrl: String(data.imageUrl ?? ""),
-        storagePath: String(data.storagePath ?? ""),
-        createdAt: normalizeTs(data.createdAt),
-      };
-    });
-
     const settings = settingsDoc.exists ? settingsDoc.data() : null;
 
-    return NextResponse.json({ rsvps, guestbook, snaps, settings });
+    return NextResponse.json({ rsvps, guestbook, snaps: [], settings });
   } catch (err) {
     console.error("[GET /api/admin]", err);
     return NextResponse.json(
@@ -105,16 +91,16 @@ export async function PUT(request: NextRequest) {
       accounts?: unknown;
       contacts?: unknown;
     };
-    if (!body?.accounts || !body?.contacts) {
+    if (!body?.accounts) {
       return NextResponse.json(
-        { error: "계좌 및 연락처 데이터가 올바르지 않습니다." },
+        { error: "계좌 데이터가 올바르지 않습니다." },
         { status: 400 }
       );
     }
 
     const payload = {
       accounts: body.accounts,
-      contacts: body.contacts,
+      contacts: body.contacts ?? { groomSide: [], brideSide: [] },
       updatedAt: Date.now(),
     };
 
@@ -123,7 +109,7 @@ export async function PUT(request: NextRequest) {
   } catch (err) {
     console.error("[PUT /api/admin]", err);
     return NextResponse.json(
-      { error: "계좌 및 연락처 저장 중 오류가 발생했습니다." },
+      { error: "계좌 저장 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }
@@ -138,32 +124,19 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const body = (await request.json()) as {
-      collection?: "rsvp" | "guestbook" | "guestSnaps";
+      collection?: "rsvp" | "guestbook";
       id?: string;
-      imageUrl?: string;
     };
 
     if (
       !body?.id ||
       !body?.collection ||
-      !["rsvp", "guestbook", "guestSnaps"].includes(body.collection)
+      !["rsvp", "guestbook"].includes(body.collection)
     ) {
       return NextResponse.json(
         { error: "삭제 대상이 올바르지 않습니다." },
         { status: 400 }
       );
-    }
-
-    if (
-      body.collection === "guestSnaps" &&
-      body.imageUrl?.startsWith("https://") &&
-      process.env.BLOB_READ_WRITE_TOKEN
-    ) {
-      try {
-        await del(body.imageUrl);
-      } catch {
-        // Blob already deleted
-      }
     }
 
     await db.collection(body.collection).doc(body.id).delete();

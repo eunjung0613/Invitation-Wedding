@@ -5,13 +5,10 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowLeft,
-  Camera,
   ClipboardList,
   Download,
-  ExternalLink,
   Lock,
   MessageSquareHeart,
-  Phone,
   RefreshCw,
   Save,
   Settings2,
@@ -21,22 +18,19 @@ import {
 import { isFirebaseConfigured } from "@/lib/firebase";
 import {
   deleteGuestbookEntry,
-  deleteGuestSnap,
   deleteRsvpEntry,
   fetchAdminDashboardData,
   getDefaultWeddingSettings,
   saveWeddingSettings,
   subscribeGuestbook,
-  subscribeGuestSnaps,
   subscribeWeddingSettings,
   type GuestbookEntry,
-  type GuestSnapEntry,
   type RsvpEntry,
   type WeddingSettings,
 } from "@/lib/weddingStore";
 import { useToast } from "@/components/ToastProvider";
 
-type AdminTab = "rsvp" | "settings" | "guestbook" | "snaps";
+type AdminTab = "rsvp" | "settings" | "guestbook";
 
 const ATTENDANCE_LABELS: Record<RsvpEntry["attendance"], string> = {
   attending: "참석",
@@ -65,7 +59,6 @@ export default function AdminPage() {
 
   const [rsvps, setRsvps] = useState<RsvpEntry[]>([]);
   const [guestbook, setGuestbook] = useState<GuestbookEntry[]>([]);
-  const [snaps, setSnaps] = useState<GuestSnapEntry[]>([]);
   const [settingsForm, setSettingsForm] = useState<WeddingSettings>(() =>
     getDefaultWeddingSettings()
   );
@@ -80,7 +73,6 @@ export default function AdminPage() {
         const data = await fetchAdminDashboardData(pw);
         setRsvps(data.rsvps);
         setGuestbook(data.guestbook);
-        setSnaps(data.snaps);
         if (data.settings) {
           setSettingsForm(data.settings);
         }
@@ -89,7 +81,7 @@ export default function AdminPage() {
         const typed = err as Error & { status?: number; code?: string };
         if (typed.code === "ADMIN_SDK_NOT_CONFIGURED") {
           setServerNotice(
-            "Vercel 환경 변수에 FIREBASE_SERVICE_ACCOUNT_KEY를 추가하고 Redeploy하면 RSVP 조회와 계좌·연락처 저장이 활성화됩니다."
+            "Vercel 환경 변수에 FIREBASE_SERVICE_ACCOUNT_KEY를 추가하고 Redeploy하면 RSVP 조회와 계좌번호 저장이 활성화됩니다."
           );
         } else {
           showToast(
@@ -105,13 +97,12 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!authenticated || isFirebaseConfigured) return;
-    // 로컬 미리보기 모드에서는 localStorage 변경을 실시간 구독
-    const unsubGb = subscribeGuestbook(setGuestbook);
-    const unsubSnaps = subscribeGuestSnaps(setSnaps);
+    const unsubGb = subscribeGuestbook((rows) =>
+      setGuestbook(rows.filter((r) => r.passwordHash !== "system-pinned"))
+    );
     const unsubSettings = subscribeWeddingSettings(setSettingsForm);
     return () => {
       unsubGb();
-      unsubSnaps();
       unsubSettings();
     };
   }, [authenticated]);
@@ -141,7 +132,6 @@ export default function AdminPage() {
       setPasswordInput("");
       setRsvps(data.rsvps);
       setGuestbook(data.guestbook);
-      setSnaps(data.snaps);
       if (data.settings) setSettingsForm(data.settings);
       setServerNotice(null);
     } catch (err) {
@@ -149,7 +139,6 @@ export default function AdminPage() {
       if (typed.status === 401) {
         showToast("관리자 비밀번호가 일치하지 않습니다.");
       } else if (typed.code === "ADMIN_SDK_NOT_CONFIGURED") {
-        // 비밀번호 검증은 통과(501은 401 이후 발생)했으나 서비스 계정 키가 아직 미등록 상태
         setAdminPassword(candidate);
         setAuthenticated(true);
         setPasswordInput("");
@@ -181,22 +170,6 @@ export default function AdminPage() {
     }));
   };
 
-  const updateContactPhone = (
-    side: "groomSide" | "brideSide",
-    index: number,
-    value: string
-  ) => {
-    setSettingsForm((prev) => ({
-      ...prev,
-      contacts: {
-        ...prev.contacts,
-        [side]: prev.contacts[side].map((person, idx) =>
-          idx === index ? { ...person, phone: value } : person
-        ),
-      },
-    }));
-  };
-
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingSettings(true);
@@ -209,7 +182,7 @@ export default function AdminPage() {
         adminPassword
       );
       setSettingsForm(saved);
-      showToast("계좌번호와 연락처가 저장되어 청첩장에 즉시 반영되었습니다.");
+      showToast("계좌번호가 저장되어 청첩장에 즉시 반영되었습니다.");
     } catch (err) {
       const message =
         err instanceof Error
@@ -260,7 +233,6 @@ export default function AdminPage() {
       "참석여부",
       "인원",
       "식사여부",
-      "연락처",
       "메시지",
     ];
     const escapeCell = (val: string | number) =>
@@ -273,7 +245,6 @@ export default function AdminPage() {
       ATTENDANCE_LABELS[r.attendance],
       r.attendance === "declined" ? 0 : r.guestCount,
       MEAL_LABELS[r.meal],
-      r.phone || "-",
       r.message || "",
     ]);
 
@@ -309,7 +280,7 @@ export default function AdminPage() {
             신랑 · 신부 관리자
           </h1>
           <p className="mt-2 text-[12.5px] text-stone">
-            계좌번호·연락처 관리, RSVP 집계, 방명록 및 하객 스냅을 관리합니다.
+            계좌번호 관리, RSVP 집계 및 축하 방명록을 관리합니다.
           </p>
 
           <form onSubmit={handleLogin} className="mt-6 space-y-3">
@@ -364,11 +335,10 @@ export default function AdminPage() {
 
           <div className="flex items-center gap-2">
             <span
-              className={`rounded-full px-3 py-1 text-[11.5px] font-medium ${
-                isFirebaseConfigured
+              className={`rounded-full px-3 py-1 text-[11.5px] font-medium ${isFirebaseConfigured
                   ? "bg-sage/15 text-sage-dark"
                   : "bg-champagne/20 text-stone"
-              }`}
+                }`}
             >
               {isFirebaseConfigured
                 ? "Firebase 서버 연동 중"
@@ -395,8 +365,8 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* 요약 KPI 카드 */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* 요약 KPI 카드 (3열) */}
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-sand bg-white p-4">
             <p className="text-[11.5px] text-muted">참석 확정 인원</p>
             <p className="font-editorial tabular-lining mt-1 text-[28px] font-medium text-sage-dark">
@@ -426,14 +396,6 @@ export default function AdminPage() {
               <span className="ml-1 font-sans text-[13px] text-stone">건</span>
             </p>
           </div>
-
-          <div className="rounded-2xl border border-sand bg-white p-4">
-            <p className="text-[11.5px] text-muted">하객 스냅</p>
-            <p className="font-editorial tabular-lining mt-1 text-[28px] font-medium text-ink">
-              {snaps.length}
-              <span className="ml-1 font-sans text-[13px] text-stone">장</span>
-            </p>
-          </div>
         </div>
 
         {/* 탭 바 */}
@@ -442,9 +404,8 @@ export default function AdminPage() {
             {(
               [
                 { id: "rsvp", label: "참석 여부 (RSVP)", icon: ClipboardList },
-                { id: "settings", label: "계좌 · 연락처 설정", icon: Settings2 },
+                { id: "settings", label: "계좌번호 설정", icon: Settings2 },
                 { id: "guestbook", label: "방명록", icon: MessageSquareHeart },
-                { id: "snaps", label: "하객 스냅", icon: Camera },
               ] as const
             ).map((tab) => {
               const Icon = tab.icon;
@@ -453,11 +414,10 @@ export default function AdminPage() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 transition sm:px-4 ${
-                    activeTab === tab.id
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 transition sm:px-4 ${activeTab === tab.id
                       ? "bg-sage text-white"
                       : "text-stone hover:text-ink"
-                  }`}
+                    }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   <span>{tab.label}</span>
@@ -495,7 +455,7 @@ export default function AdminPage() {
         <div className="mt-5">
           {activeTab === "rsvp" && (
             <div className="overflow-x-auto rounded-2xl border border-sand bg-white">
-              <table className="w-full min-w-[640px] text-left text-[13px]">
+              <table className="w-full min-w-[560px] text-left text-[13px]">
                 <thead className="border-b border-sand bg-linen/70 text-[12px] text-stone">
                   <tr>
                     <th className="px-4 py-3">구분</th>
@@ -503,7 +463,6 @@ export default function AdminPage() {
                     <th className="px-4 py-3">참석</th>
                     <th className="px-4 py-3">인원</th>
                     <th className="px-4 py-3">식사</th>
-                    <th className="px-4 py-3">연락처</th>
                     <th className="px-4 py-3">메시지</th>
                     <th className="px-4 py-3 text-right">관리</th>
                   </tr>
@@ -512,7 +471,7 @@ export default function AdminPage() {
                   {filteredRsvps.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={7}
                         className="px-4 py-10 text-center text-muted"
                       >
                         아직 등록된 참석 여부 응답이 없습니다.
@@ -523,11 +482,10 @@ export default function AdminPage() {
                       <tr key={r.id} className="hover:bg-ivory/50">
                         <td className="px-4 py-3">
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                              r.side === "groom"
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${r.side === "groom"
                                 ? "bg-sage/12 text-sage-dark"
                                 : "bg-champagne/20 text-ink"
-                            }`}
+                              }`}
                           >
                             {r.side === "groom" ? "신랑측" : "신부측"}
                           </span>
@@ -542,10 +500,7 @@ export default function AdminPage() {
                           {r.attendance === "declined" ? 0 : r.guestCount}명
                         </td>
                         <td className="px-4 py-3">{MEAL_LABELS[r.meal]}</td>
-                        <td className="px-4 py-3 text-stone">
-                          {r.phone || "-"}
-                        </td>
-                        <td className="max-w-[220px] truncate px-4 py-3 text-stone">
+                        <td className="max-w-[260px] truncate px-4 py-3 text-stone">
                           {r.message || "-"}
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -688,61 +643,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* 연락처 6인 설정 */}
-              <div className="rounded-3xl border border-sand bg-white p-5 sm:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand/80 pb-4">
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-sage" />
-                    <h2 className="font-batang text-[16.5px] font-bold text-ink">
-                      신랑 · 신부 및 혼주 연락처 (총 6인)
-                    </h2>
-                  </div>
-                  <p className="text-[11.5px] text-muted">
-                    입력하신 번호는 청첩장 &apos;연락하기&apos; 전화·문자 버튼에 즉시 연결됩니다
-                  </p>
-                </div>
-
-                <div className="mt-5 grid gap-6 lg:grid-cols-2">
-                  {(
-                    [
-                      { key: "groomSide", title: "신랑측 연락처 (3인)" },
-                      { key: "brideSide", title: "신부측 연락처 (3인)" },
-                    ] as const
-                  ).map((group) => (
-                    <div key={group.key} className="space-y-2.5">
-                      <p className="text-[13px] font-semibold text-sage-dark">
-                        {group.title}
-                      </p>
-                      {settingsForm.contacts[group.key].map((person, idx) => (
-                        <div
-                          key={`${group.key}-${person.role}`}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sand/80 bg-ivory/50 px-4 py-3"
-                        >
-                          <div className="min-w-[110px]">
-                            <span className="text-[11px] text-muted">
-                              {person.role}
-                            </span>
-                            <p className="font-batang text-[14px] font-bold text-ink">
-                              {person.name}
-                            </p>
-                          </div>
-                          <input
-                            type="tel"
-                            value={person.phone}
-                            onChange={(e) =>
-                              updateContactPhone(group.key, idx, e.target.value)
-                            }
-                            aria-label={`${person.name} 연락처`}
-                            placeholder="010-0000-0000"
-                            className="flex-1 rounded-xl border border-sand bg-white px-3.5 py-2 text-[13px] text-ink placeholder:text-muted focus:border-sage focus:outline-none"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* 저장 버튼 */}
               <div className="flex flex-wrap items-center justify-end gap-3">
                 {settingsForm.updatedAt > 0 && (
@@ -760,7 +660,7 @@ export default function AdminPage() {
                   <span>
                     {savingSettings
                       ? "저장 중..."
-                      : "계좌 · 연락처 저장 및 즉시 반영"}
+                      : "계좌번호 저장 및 즉시 반영"}
                   </span>
                 </button>
               </div>
@@ -769,110 +669,50 @@ export default function AdminPage() {
 
           {activeTab === "guestbook" && (
             <div className="space-y-3">
-              {guestbook.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="flex items-start justify-between gap-4 rounded-2xl border border-sand bg-white p-4"
-                >
-                  <div>
-                    <p className="font-batang text-[14.5px] font-bold text-ink">
-                      {entry.name}
-                      <span className="ml-2 font-sans text-[11px] font-normal text-muted">
-                        {new Date(entry.createdAt).toLocaleString("ko-KR")}
-                      </span>
-                    </p>
-                    <p className="mt-1.5 whitespace-pre-line text-[13px] text-stone">
-                      {entry.message}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const res = await deleteGuestbookEntry(
-                        entry,
-                        "",
-                        true,
-                        adminPassword
-                      );
-                      if (!res.ok) {
-                        showToast(res.reason || "삭제에 실패했습니다.");
-                        return;
-                      }
-                      setGuestbook((prev) =>
-                        prev.filter((item) => item.id !== entry.id)
-                      );
-                      showToast("방명록이 삭제되었습니다.");
-                    }}
-                    className="shrink-0 rounded-lg p-2 text-muted hover:bg-linen hover:text-[#B86A5B]"
-                    aria-label="방명록 삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === "snaps" && (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-              {snaps.length === 0 ? (
-                <div className="col-span-full rounded-2xl border border-sand bg-white py-12 text-center text-[13px] text-muted">
-                  아직 업로드된 하객 스냅이 없습니다.
+              {guestbook.length === 0 ? (
+                <div className="rounded-2xl border border-sand bg-white py-12 text-center text-[13px] text-muted">
+                  아직 하객이 남긴 방명록이 없습니다.
                 </div>
               ) : (
-                snaps.map((snap) => (
+                guestbook.map((entry) => (
                   <div
-                    key={snap.id}
-                    className="overflow-hidden rounded-2xl border border-sand bg-white p-2"
+                    key={entry.id}
+                    className="flex items-start justify-between gap-4 rounded-2xl border border-sand bg-white p-4"
                   >
-                    <img
-                      src={snap.imageUrl}
-                      alt={snap.author}
-                      className="aspect-square w-full rounded-xl object-cover"
-                    />
-                    <div className="mt-2 flex items-center justify-between px-1">
-                      <div className="min-w-0">
-                        <p className="truncate text-[12.5px] font-semibold text-ink">
-                          {snap.author}
-                        </p>
-                        <p className="truncate text-[11px] text-muted">
-                          {snap.caption || "-"}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <a
-                          href={snap.imageUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-lg p-1.5 text-stone hover:bg-linen"
-                          aria-label="원본 열기"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await deleteGuestSnap(snap, adminPassword);
-                              setSnaps((prev) =>
-                                prev.filter((item) => item.id !== snap.id)
-                              );
-                              showToast("하객 스냅이 삭제되었습니다.");
-                            } catch (err) {
-                              showToast(
-                                err instanceof Error
-                                  ? err.message
-                                  : "삭제에 실패했습니다."
-                              );
-                            }
-                          }}
-                          className="rounded-lg p-1.5 text-muted hover:bg-linen hover:text-[#B86A5B]"
-                          aria-label="스냅 삭제"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                    <div>
+                      <p className="font-batang text-[14.5px] font-bold text-ink">
+                        {entry.name}
+                        <span className="ml-2 font-sans text-[11px] font-normal text-muted">
+                          {new Date(entry.createdAt).toLocaleString("ko-KR")}
+                        </span>
+                      </p>
+                      <p className="mt-1.5 whitespace-pre-line text-[13px] text-stone">
+                        {entry.message}
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await deleteGuestbookEntry(
+                          entry,
+                          "",
+                          true,
+                          adminPassword
+                        );
+                        if (!res.ok) {
+                          showToast(res.reason || "삭제에 실패했습니다.");
+                          return;
+                        }
+                        setGuestbook((prev) =>
+                          prev.filter((item) => item.id !== entry.id)
+                        );
+                        showToast("방명록이 삭제되었습니다.");
+                      }}
+                      className="shrink-0 rounded-lg p-2 text-muted hover:bg-linen hover:text-[#B86A5B]"
+                      aria-label="방명록 삭제"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 ))
               )}

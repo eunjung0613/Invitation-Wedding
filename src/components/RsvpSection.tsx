@@ -18,7 +18,6 @@ export function RsvpSection() {
   const [name, setName] = useState("");
   const [guestCount, setGuestCount] = useState(1);
   const [meal, setMeal] = useState<RsvpMeal>("yes");
-  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -39,7 +38,7 @@ export function RsvpSection() {
         name,
         guestCount: attendance === "declined" ? 0 : guestCount,
         meal: attendance === "declined" ? "no" : meal,
-        phone,
+        phone: "",
         message,
       });
       setSubmitted(true);
@@ -48,7 +47,6 @@ export function RsvpSection() {
         setOpen(false);
         setSubmitted(false);
         setName("");
-        setPhone("");
         setMessage("");
         setGuestCount(1);
       }, 1300);
@@ -62,7 +60,7 @@ export function RsvpSection() {
   return (
     <section
       id="rsvp"
-      className="border-t border-sand/80 px-5 pt-16 pb-6 text-center sm:px-8 sm:pt-20 sm:pb-7"
+      className="border-t border-sand/80 px-5 py-16 text-center sm:px-8 sm:py-20"
     >
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -267,25 +265,6 @@ export function RsvpSection() {
                       </div>
                     </div>
                   )}
-
-                  {/* 연락처 (선택) */}
-                  <div>
-                    <label
-                      htmlFor="rsvp-phone"
-                      className="mb-1.5 block text-[12px] font-medium text-stone"
-                    >
-                      연락처 <span className="text-muted">(선택)</span>
-                    </label>
-                    <input
-                      id="rsvp-phone"
-                      type="tel"
-                      maxLength={30}
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="010-0000-0000"
-                      className="w-full rounded-xl border border-sand bg-white px-3.5 py-2.5 text-[13.5px] text-ink placeholder:text-muted focus:border-sage focus:outline-none"
-                    />
-                  </div>
 
                   {/* 메시지 (선택) */}
                   <div>
