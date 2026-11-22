@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarPlus, ExternalLink } from "lucide-react";
 import { WEDDING_CONFIG } from "@/config/wedding";
-import { downloadWeddingIcs, getGoogleCalendarUrl } from "@/lib/calendar";
-import { useToast } from "./ToastProvider";
+import { getGoogleCalendarUrl } from "@/lib/calendar";
 
 interface CountdownState {
   days: number;
@@ -68,7 +67,6 @@ function buildMonthGrid(year: number, month: number): Array<number | null> {
 
 export function CalendarSection() {
   const [countdown, setCountdown] = useState<CountdownState | null>(null);
-  const { showToast } = useToast();
   const { year, month, day } = WEDDING_CONFIG.schedule;
   const cells = buildMonthGrid(year, month);
 
@@ -105,13 +103,13 @@ export function CalendarSection() {
           {WEDDING_CONFIG.schedule.weekdayKo} {WEDDING_CONFIG.schedule.timeKo}
         </p>
 
-        {/* 03 28 풍선 사진 포인트 카드 */}
+        {/* 03 28 풍선 사진 포인트 카드 (원본 4:5 전신 비율 그대로 유지) */}
         <div className="mx-auto mt-7 max-w-[340px] overflow-hidden rounded-2xl border border-sand bg-white p-2 shadow-xs">
-          <div className="aspect-[16/10] overflow-hidden rounded-xl">
+          <div className="aspect-[4/5] overflow-hidden rounded-xl">
             <img
               src={WEDDING_CONFIG.featuredPhotos.dateBalloon}
               alt="03 28 숫자 풍선을 들고 있는 신랑 신부"
-              className="h-full w-full object-cover object-[center_42%]"
+              className="h-full w-full object-cover object-center"
               loading="lazy"
             />
           </div>
@@ -234,25 +232,22 @@ export function CalendarSection() {
 
           {/* 캘린더 일정 추가 버튼 */}
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                downloadWeddingIcs();
-                showToast("일정 파일(.ics)을 다운로드했습니다.");
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-4 py-2 text-[12px] font-medium text-ink transition hover:border-sage hover:text-sage"
-            >
-              <CalendarPlus className="h-3.5 w-3.5 text-sage" />
-              <span>캘린더 저장 (.ics)</span>
-            </button>
             <a
               href={getGoogleCalendarUrl()}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-4 py-2 text-[12px] font-medium text-ink transition hover:border-sage hover:text-sage"
             >
+              <CalendarPlus className="h-3.5 w-3.5 text-sage" />
               <span>구글 캘린더</span>
               <ExternalLink className="h-3 w-3 text-muted" />
+            </a>
+            <a
+              href="/api/calendar"
+              className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-4 py-2 text-[12px] font-medium text-ink transition hover:border-sage hover:text-sage"
+            >
+              <CalendarPlus className="h-3.5 w-3.5 text-sage" />
+              <span>아이폰 · 삼성 캘린더</span>
             </a>
           </div>
         </div>
