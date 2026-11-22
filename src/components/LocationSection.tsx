@@ -6,16 +6,19 @@ import {
   Bus,
   Car,
   Copy,
+  Expand,
   MapPin,
   Navigation,
   Phone,
   TrainFront,
+  X,
 } from "lucide-react";
 import { WEDDING_CONFIG } from "@/config/wedding";
 import { useToast } from "./ToastProvider";
 
 export function LocationSection() {
   const [mapTab, setMapTab] = useState<"map" | "sketch">("map");
+  const [sketchZoomOpen, setSketchZoomOpen] = useState(false);
   const { showToast } = useToast();
   const { venue } = WEDDING_CONFIG;
 
@@ -141,194 +144,25 @@ export function LocationSection() {
               />
             </div>
           ) : (
-            /* 문래역 5번 출구 -> 문래동주민센터 방향 300m -> SK리더스뷰 2층 규수당 감성 약도 */
-            <div className="bg-[#FBF9F5] p-5">
-              <svg
-                viewBox="0 0 420 280"
-                className="w-full rounded-xl"
-                role="img"
-                aria-label="문래역 5번 출구에서 규수당 문래점(SK리더스뷰 2층)까지 도보 6분 300m 약도"
+            /* 사용자 제공 공식 약도 이미지 (클릭 시 크게 보기 지원) */
+            <div className="bg-white p-3">
+              <button
+                type="button"
+                onClick={() => setSketchZoomOpen(true)}
+                className="group relative block w-full overflow-hidden rounded-xl border border-sand/70 bg-white focus:outline-none focus:ring-2 focus:ring-sage"
+                aria-label="약도 크게 보기"
               >
-                {/* 배경 도로망 */}
-                <rect width="420" height="280" fill="#FBF9F5" />
-                {/* 가로 문래로 */}
-                <path
-                  d="M 20 158 L 400 158"
-                  stroke="#E4DDD2"
-                  strokeWidth="26"
-                  strokeLinecap="round"
+                <img
+                  src={venue.sketchMapImage}
+                  alt="규수당 문래점(SK리더스뷰 2층) 오시는 길 약도"
+                  className="h-auto w-full object-contain"
+                  loading="lazy"
                 />
-                {/* 세로 당산로 */}
-                <path
-                  d="M 102 20 L 102 260"
-                  stroke="#E4DDD2"
-                  strokeWidth="22"
-                  strokeLinecap="round"
-                />
-                {/* 세로 문래역 교차로 보조도로 */}
-                <path
-                  d="M 290 60 L 290 250"
-                  stroke="#EFEAE1"
-                  strokeWidth="14"
-                  strokeLinecap="round"
-                />
-
-                {/* 도보 이동 점선 경로 */}
-                <path
-                  d="M 118 158 L 285 158 L 285 112"
-                  fill="none"
-                  stroke="#5F6F60"
-                  strokeWidth="3.5"
-                  strokeDasharray="6 6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-
-                {/* 2호선 문래역 */}
-                <circle cx="102" cy="158" r="24" fill="#3CB44A" />
-                <text
-                  x="102"
-                  y="155"
-                  textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize="10"
-                  fontWeight="700"
-                >
-                  2호선
-                </text>
-                <text
-                  x="102"
-                  y="168"
-                  textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize="11"
-                  fontWeight="700"
-                >
-                  문래역
-                </text>
-
-                {/* 5번 출구 배지 */}
-                <rect
-                  x="130"
-                  y="123"
-                  width="54"
-                  height="22"
-                  rx="11"
-                  fill="#FFFFFF"
-                  stroke="#5F6F60"
-                  strokeWidth="1.2"
-                />
-                <text
-                  x="157"
-                  y="138"
-                  textAnchor="middle"
-                  fill="#475648"
-                  fontSize="10"
-                  fontWeight="600"
-                >
-                  5번 출구
-                </text>
-
-                {/* 거리 표기 */}
-                <rect
-                  x="166"
-                  y="174"
-                  width="116"
-                  height="22"
-                  rx="11"
-                  fill="#5F6F60"
-                />
-                <text
-                  x="224"
-                  y="189"
-                  textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize="10"
-                  fontWeight="600"
-                >
-                  도보 6분 · 직진 300m
-                </text>
-
-                {/* 문래동주민센터 방향 */}
-                <text
-                  x="345"
-                  y="162"
-                  textAnchor="middle"
-                  fill="#8C8479"
-                  fontSize="9.5"
-                >
-                  문래동주민센터 방면 →
-                </text>
-
-                {/* 규수당 문래점 (SK리더스뷰 2층) 목적지 */}
-                <rect
-                  x="216"
-                  y="42"
-                  width="148"
-                  height="64"
-                  rx="14"
-                  fill="#475648"
-                />
-                <text
-                  x="290"
-                  y="66"
-                  textAnchor="middle"
-                  fill="#FFFFFF"
-                  fontSize="12.5"
-                  fontWeight="700"
-                >
-                  규수당 문래점
-                </text>
-                <text
-                  x="290"
-                  y="83"
-                  textAnchor="middle"
-                  fill="#E4EDE5"
-                  fontSize="10"
-                >
-                  SK리더스뷰 2층 · 카이타스홀
-                </text>
-                <text
-                  x="290"
-                  y="97"
-                  textAnchor="middle"
-                  fill="#C8D6C9"
-                  fontSize="9"
-                >
-                  지하 3층 주차장 (2시간 무료)
-                </text>
-
-                {/* 에이스하이테크시티 (만차 시) */}
-                <rect
-                  x="216"
-                  y="214"
-                  width="156"
-                  height="38"
-                  rx="10"
-                  fill="#FFFFFF"
-                  stroke="#D8CFC2"
-                  strokeWidth="1.2"
-                />
-                <text
-                  x="294"
-                  y="231"
-                  textAnchor="middle"
-                  fill="#5E5850"
-                  fontSize="10"
-                  fontWeight="600"
-                >
-                  에이스하이테크시티
-                </text>
-                <text
-                  x="294"
-                  y="244"
-                  textAnchor="middle"
-                  fill="#8F887E"
-                  fontSize="9"
-                >
-                  만차 시 주차 후 등록
-                </text>
-              </svg>
+                <span className="absolute right-2.5 bottom-2.5 inline-flex items-center gap-1 rounded-full bg-ink/75 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-xs transition group-hover:bg-sage">
+                  <Expand className="h-3 w-3" />
+                  <span>크게 보기</span>
+                </span>
+              </button>
             </div>
           )}
 
@@ -432,6 +266,29 @@ export function LocationSection() {
           </div>
         </div>
       </motion.div>
+
+      {/* 약도 크게 보기 모달 */}
+      {sketchZoomOpen && (
+        <div
+          onClick={() => setSketchZoomOpen(false)}
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+        >
+          <button
+            type="button"
+            onClick={() => setSketchZoomOpen(false)}
+            aria-label="약도 닫기"
+            className="fixed top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={venue.sketchMapImage}
+            alt="규수당 문래점(SK리더스뷰 2층) 오시는 길 약도 확대"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[85dvh] max-w-full rounded-xl bg-white object-contain shadow-2xl"
+          />
+        </div>
+      )}
     </section>
   );
 }

@@ -158,7 +158,7 @@ export function GallerySection() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.2 }}
-                className="max-h-[72dvh] max-w-full rounded-lg object-contain shadow-2xl"
+                className="max-h-[78dvh] max-w-full rounded-lg object-contain shadow-2xl"
               />
             </AnimatePresence>
 
@@ -172,11 +172,8 @@ export function GallerySection() {
             </button>
           </div>
 
-          {/* 하단 캡션 & 썸네일 스트립 */}
+          {/* 하단 썸네일 스트립 (설명 없이 사진만 깔끔하게 감상) */}
           <div className="px-4 pt-2 pb-5">
-            <p className="mb-3 text-center text-[12.5px] text-white/75">
-              {photos[selectedIndex].alt}
-            </p>
             <div className="mx-auto flex max-w-[640px] gap-1.5 overflow-x-auto pb-1">
               {photos.map((p, idx) => (
                 <button

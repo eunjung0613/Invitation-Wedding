@@ -39,7 +39,7 @@ export const WEDDING_CONFIG = {
     groom: {
       koreanName: "이호민",
       firstName: "호민",
-      englishName: "Rhee Homin",
+      englishName: "Homin Rhee",
       relation: "장남",
       father: "이동진",
       mother: "김문향",
@@ -47,7 +47,7 @@ export const WEDDING_CONFIG = {
     bride: {
       koreanName: "김은정",
       firstName: "은정",
-      englishName: "Kim Eunjung",
+      englishName: "Eunjung Kim",
       relation: "차녀",
       father: "김인성",
       mother: "최복경",
@@ -91,6 +91,7 @@ export const WEDDING_CONFIG = {
     shortAddress: "서울특별시 영등포구 문래로 164",
     phone: "02.332.9000",
     phoneTel: "02-332-9000",
+    sketchMapImage: "/images/wedding/location-map.jpg",
     lat: 37.517436,
     lng: 126.899788,
     transport: {
