@@ -1,0 +1,393 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following Cloud Firestore
+// data structures for the Korean mobile wedding invitation app:
+//
+// 1. Collection: guestbook
+//    Document ID: auto-generated
+//    Access: Public read & public create (wedding guests, no login).
+//            Immutable after creation (no client updates).
+//            Delete restricted to authenticated admin by default (see notes below).
+//    Fields:
+//      - name: string (required, 1..30 chars, non-blank) - Guest display name
+//      - message: string (required, 1..500 chars, non-blank) - Congratulatory message
+//      - passwordHash: string (required, 1..128 chars) - SHA-256 hex digest for deletion flow
+//      - createdAt: timestamp or int epoch ms (required, immutable, within +/-5m of server time)
+//
+// 2. Collection: rsvp
+//    Document ID: auto-generated
+//    Access: Public create (wedding guests, no login).
+//            Read & delete strictly restricted to authenticated admin (contains PII: phone).
+//            Immutable after creation (no client updates).
+//    Fields:
+//      - side: string (required, enum: 'groom' | 'bride') - Groom or bride side
+//      - attendance: string (required, enum: 'attending' | 'declined' | 'undecided')
+//      - name: string (required, 1..30 chars, non-blank) - Guest name
+//      - guestCount: int (required, 1..20) - Total attending party size
+//      - meal: string (required, enum: 'yes' | 'no' | 'undecided') - Meal preference
+//      - phone: string (optional, 0..30 chars) - Guest contact phone (PII)
+//      - message: string (optional, 0..300 chars) - Optional note to the couple
+//      - createdAt: timestamp or int epoch ms (required, immutable, within +/-5m of server time)
+//
+// 3. Collection: guestSnaps
+//    Document ID: auto-generated
+//    Access: Public read & public create (wedding photo wall, no login).
+//            Immutable after creation (no client updates).
+//            Delete restricted to authenticated admin.
+//    Fields:
+//      - author: string (required, 1..30 chars, non-blank) - Photographer / guest name
+//      - caption: string (optional, 0..120 chars) - Short photo caption
+//      - imageUrl: string (required, 1..2048 chars, https:// URL) - Download URL
+//      - storagePath: string (optional, 0..512 chars, '' or 'guest-snaps/<file>') - Storage path
+//      - createdAt: timestamp or int epoch ms (required, immutable, within +/-5m of server time)
+//
+// 4. Document: settings/public
+//    Document ID: 'public' (singleton public configuration document)
+//    Access: Public read (wedding guests view couple's bank accounts & contacts).
+//            Create & update strictly restricted to authenticated admin.
+//            Delete disabled (immutable existence).
+//    Fields:
+//      - accounts: map (required, exact keys: 'groomSide', 'brideSide')
+//          - groomSide / brideSide: list<BankAccount> (1..6 items; default 3)
+//              - id: string (required, 1..40 chars, non-blank)
+//              - role: string (required, 1..20 chars, non-blank)
+//              - holder: string (required, 1..30 chars, non-blank)
+//              - bank: string (required, 0..30 chars)
+//              - number: string (required, 0..40 chars)
+//              - kakaoPayUrl: string (optional, 0..300 chars, '' or https:// URL)
+//      - contacts: map (required, exact keys: 'groomSide', 'brideSide')
+//          - groomSide / brideSide: list<ContactPerson> (1..6 items; default 3)
+//              - role: string (required, 1..20 chars, non-blank)
+//              - name: string (required, 1..30 chars, non-blank)
+//              - phone: string (required, 0..30 chars)
+//      - updatedAt: timestamp or int epoch ms (required, within +/-5m of server time)
+//
+// ===============================================================
+// Admin & Deletion Security Architecture Notes
+// ===============================================================
+// - Admin authorization (`isAdmin()`) relies strictly on Firebase Auth
+//   custom claims (`request.auth.token.admin == true`), NEVER on client-supplied
+//   document fields or client-side passcodes.
+// - To grant admin access to the couple's Firebase Auth user(s), run via Admin SDK:
+//     admin.auth().setCustomUserClaims(uid, { admin: true });
+// - If `/admin` currently uses a passcode gate instead of Firebase Auth,
+//   route `/admin` reads/deletes (and guestbook password-verified deletes)
+//   through Next.js Route Handlers / Server Actions using the Firebase Admin SDK
+//   (which bypasses client rules safely on the server after verifying the admin
+//   session or guest password hash).
+// - NEVER set `allow read: if true` on `rsvp` (exposes guest phone PII) or
+//   `allow delete: if true` on `guestbook`/`rsvp`/`guestSnaps` (allows any
+//   anonymous visitor to wipe all wedding data).
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the request is from an authenticated Firebase Auth user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user has the server-assigned `admin` custom claim
+    function isAdmin() {
+      return isAuthenticated() &&
+             ('admin' in request.auth.token) &&
+             request.auth.token.admin == true;
+    }
+
+    // Check if the authenticated user owns the target resource path
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if the authenticated user owns the existing document via its uid field
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    // Verify uid field matches authenticated user on create (when present)
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+             (isAuthenticated() && request.resource.data.uid == request.auth.uid);
+    }
+
+    // Ensure uid field is not modified on update (when present)
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+             request.resource.data.uid == resource.data.uid;
+    }
+
+    // Enforce strict schema: reject any fields outside the allowed whitelist
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Ensure all required fields are present on the incoming document
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Ensure specified immutable fields were not modified on update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate a required non-blank string within [minLen, maxLen]
+    function isValidRequiredString(val, minLen, maxLen) {
+      return val is string &&
+             val.size() >= minLen &&
+             val.size() <= maxLen &&
+             val.trim().size() >= 1;
+    }
+
+    // Validate an optional string field (if present, must be string within [minLen, maxLen])
+    function isValidOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) ||
+             (data[field] is string &&
+              data[field].size() >= minLen &&
+              data[field].size() <= maxLen);
+    }
+
+    // Validate an HTTPS URL (or localhost emulator URL) with length cap and no whitespace
+    function isValidUrl(url) {
+      return url is string &&
+             url.size() >= 1 &&
+             url.size() <= 2048 &&
+             (url.matches('^https://[^\\s]+$') ||
+              url.matches('^http://(127\\.0\\.0\\.1|localhost)(:[0-9]+)?/[^\\s]+$'));
+    }
+
+    // Validate that a Firestore timestamp is within +/- 5 minutes of server time
+    function isRecent(time) {
+      return time is timestamp &&
+             time >= request.time - duration.value(5, 'm') &&
+             time <= request.time + duration.value(5, 'm');
+    }
+
+    // Validate createdAt as either a recent Firestore timestamp or recent epoch-ms int
+    // (blocks timestamp spoofing / pinning messages to the top of descending feeds)
+    function isValidCreatedAt(val) {
+      return isRecent(val) ||
+             (val is int &&
+              val >= request.time.toMillis() - 300000 &&
+              val <= request.time.toMillis() + 300000);
+    }
+
+    // Validate optional storagePath: strictly scoped to guest-snaps/ with no path traversal
+    function isValidOptionalStoragePath(data) {
+      return !('storagePath' in data) ||
+             (data.storagePath is string &&
+              data.storagePath.size() <= 512 &&
+              (data.storagePath == '' ||
+               (data.storagePath.matches('^guest-snaps/[a-zA-Z0-9][a-zA-Z0-9._-]*$') &&
+                !data.storagePath.matches('.*\\.\\..*'))));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // (Always call these on both create and update if updates are ever enabled)
+    // ===============================================================
+
+    function isValidGuestbookEntry(data) {
+      return hasOnlyAllowedFields(['name', 'message', 'passwordHash', 'createdAt']) &&
+             hasRequiredFields(['name', 'message', 'passwordHash', 'createdAt']) &&
+             isValidRequiredString(data.name, 1, 30) &&
+             isValidRequiredString(data.message, 1, 500) &&
+             isValidRequiredString(data.passwordHash, 1, 128) &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    function isValidRsvp(data) {
+      return hasOnlyAllowedFields([
+               'side',
+               'attendance',
+               'name',
+               'guestCount',
+               'meal',
+               'phone',
+               'message',
+               'createdAt'
+             ]) &&
+             hasRequiredFields([
+               'side',
+               'attendance',
+               'name',
+               'guestCount',
+               'meal',
+               'createdAt'
+             ]) &&
+             data.side is string &&
+             data.side in ['groom', 'bride'] &&
+             data.attendance is string &&
+             data.attendance in ['attending', 'declined', 'undecided'] &&
+             isValidRequiredString(data.name, 1, 30) &&
+             data.guestCount is int &&
+             data.guestCount >= 1 &&
+             data.guestCount <= 20 &&
+             data.meal is string &&
+             data.meal in ['yes', 'no', 'undecided'] &&
+             isValidOptionalString(data, 'phone', 0, 30) &&
+             isValidOptionalString(data, 'message', 0, 300) &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    function isValidGuestSnap(data) {
+      return hasOnlyAllowedFields([
+               'author',
+               'caption',
+               'imageUrl',
+               'storagePath',
+               'createdAt'
+             ]) &&
+             hasRequiredFields([
+               'author',
+               'imageUrl',
+               'createdAt'
+             ]) &&
+             isValidRequiredString(data.author, 1, 30) &&
+             isValidOptionalString(data, 'caption', 0, 120) &&
+             isValidUrl(data.imageUrl) &&
+             isValidOptionalStoragePath(data) &&
+             isValidCreatedAt(data.createdAt);
+    }
+
+    // Validate a single bank account entry in settings/public.accounts.{groomSide,brideSide}
+    function isValidBankAccount(item) {
+      return item is map &&
+             item.keys().hasOnly(['id', 'role', 'holder', 'bank', 'number', 'kakaoPayUrl']) &&
+             item.keys().hasAll(['id', 'role', 'holder', 'bank', 'number']) &&
+             isValidRequiredString(item.id, 1, 40) &&
+             isValidRequiredString(item.role, 1, 20) &&
+             isValidRequiredString(item.holder, 1, 30) &&
+             item.bank is string &&
+             item.bank.size() <= 30 &&
+             item.number is string &&
+             item.number.size() <= 40 &&
+             (!('kakaoPayUrl' in item) ||
+              (item.kakaoPayUrl is string &&
+               item.kakaoPayUrl.size() <= 300 &&
+               (item.kakaoPayUrl == '' ||
+                item.kakaoPayUrl.matches('^https://[^\\s]+$'))));
+    }
+
+    // Deep-validate a bank account list (1..6 elements)
+    function isValidBankAccountList(items) {
+      return items is list &&
+             items.size() >= 1 &&
+             items.size() <= 6 &&
+             (items.size() < 1 || isValidBankAccount(items[0])) &&
+             (items.size() < 2 || isValidBankAccount(items[1])) &&
+             (items.size() < 3 || isValidBankAccount(items[2])) &&
+             (items.size() < 4 || isValidBankAccount(items[3])) &&
+             (items.size() < 5 || isValidBankAccount(items[4])) &&
+             (items.size() < 6 || isValidBankAccount(items[5]));
+    }
+
+    // Validate a single contact person entry in settings/public.contacts.{groomSide,brideSide}
+    function isValidContactPerson(item) {
+      return item is map &&
+             item.keys().hasOnly(['role', 'name', 'phone']) &&
+             item.keys().hasAll(['role', 'name', 'phone']) &&
+             isValidRequiredString(item.role, 1, 20) &&
+             isValidRequiredString(item.name, 1, 30) &&
+             item.phone is string &&
+             item.phone.size() <= 30;
+    }
+
+    // Deep-validate a contact person list (1..6 elements)
+    function isValidContactPersonList(items) {
+      return items is list &&
+             items.size() >= 1 &&
+             items.size() <= 6 &&
+             (items.size() < 1 || isValidContactPerson(items[0])) &&
+             (items.size() < 2 || isValidContactPerson(items[1])) &&
+             (items.size() < 3 || isValidContactPerson(items[2])) &&
+             (items.size() < 4 || isValidContactPerson(items[3])) &&
+             (items.size() < 5 || isValidContactPerson(items[4])) &&
+             (items.size() < 6 || isValidContactPerson(items[5]));
+    }
+
+    function isValidPublicSettings(data) {
+      return hasOnlyAllowedFields(['accounts', 'contacts', 'updatedAt']) &&
+             hasRequiredFields(['accounts', 'contacts', 'updatedAt']) &&
+             data.accounts is map &&
+             data.accounts.keys().hasOnly(['groomSide', 'brideSide']) &&
+             data.accounts.keys().hasAll(['groomSide', 'brideSide']) &&
+             isValidBankAccountList(data.accounts.groomSide) &&
+             isValidBankAccountList(data.accounts.brideSide) &&
+             data.contacts is map &&
+             data.contacts.keys().hasOnly(['groomSide', 'brideSide']) &&
+             data.contacts.keys().hasAll(['groomSide', 'brideSide']) &&
+             isValidContactPersonList(data.contacts.groomSide) &&
+             isValidContactPersonList(data.contacts.brideSide) &&
+             isValidCreatedAt(data.updatedAt);
+    }
+
+    // ===============================================================
+    // Default Deny (Catch-All)
+    // ===============================================================
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. Guestbook (방명록)
+    // Publicly readable & creatable by wedding guests; immutable after creation.
+    // NOTE: Firestore DELETE requests carry no payload, so client-side password
+    // verification cannot be enforced securely in Rules. Keep `delete` restricted
+    // to `isAdmin()` (or perform guest password-verified deletes via a server API
+    // route / Cloud Function using the Firebase Admin SDK).
+    match /guestbook/{docId} {
+      allow read: if true;
+      allow create: if isValidGuestbookEntry(request.resource.data);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 2. RSVP (참석 여부)
+    // Publicly creatable by wedding guests without login.
+    // Read & delete are strictly restricted to authenticated admins (`isAdmin()`)
+    // because RSVP documents contain guest PII (`phone`).
+    // If `/admin` uses a passcode instead of Firebase Auth, fetch/delete RSVPs
+    // through a server-side Next.js API route using Firebase Admin SDK.
+    match /rsvp/{docId} {
+      allow read: if isAdmin();
+      allow create: if isValidRsvp(request.resource.data);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 3. Guest Snaps (하객 스냅 포토월)
+    // Publicly readable & creatable by wedding guests; immutable after creation.
+    // Delete restricted to authenticated admins (`isAdmin()`).
+    match /guestSnaps/{docId} {
+      allow read: if true;
+      allow create: if isValidGuestSnap(request.resource.data);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 4. Public Wedding Settings (계좌번호 · 혼주 연락처 설정)
+    // Singleton document (`settings/public`) publicly readable by wedding guests.
+    // Writes restricted to authenticated admins (`isAdmin()`) with strict schema
+    // validation on both create and update; deletes disabled. Any other path under
+    // `/settings/*` remains denied by the default-deny catch-all rule.
+    match /settings/public {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidPublicSettings(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

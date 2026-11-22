@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-ivory: #FAF8F5;
+  --color-linen: #F3EFE8;
+  --color-sand: #E8E2D8;
+  --color-champagne: #B8A38F;
+  --color-sage: #5F6F60;
+  --color-sage-dark: #475648;
+  --color-ink: #2C2A27;
+  --color-stone: #6E685F;
+  --color-muted: #9B948A;
+
+  --font-serif-en: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+  --font-serif-kr: var(--font-gowun), "Gowun Batang", serif;
+  --font-sans-kr: var(--font-noto-sans), "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #FAF8F5;
+  color: #2C2A27;
+}
+
+body {
+  background-color: #FAF8F5;
+  color: #2C2A27;
+  font-family: var(--font-sans-kr);
+  overflow-x: clip;
+  word-break: keep-all;
+}
+
+/* 초소형 폴드 커버 화면(280px~344px)에서도 안정적인 여백과 줄바꿈 */
+* {
+  box-sizing: border-box;
+}
+
+.font-editorial {
+  font-family: var(--font-serif-en);
+}
+
+.font-batang {
+  font-family: var(--font-serif-kr);
+}
+
+.tabular-lining {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+@keyframes slowKenBurns {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.06);
+  }
+}
+
+.animate-ken-burns {
+  animation: slowKenBurns 18s ease-out forwards;
+}
+
+@keyframes soundBar {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 13px;
+  }
+}
+
+.sound-bar-1 {
+  animation: soundBar 0.9s ease-in-out infinite;
+}
+.sound-bar-2 {
+  animation: soundBar 0.7s ease-in-out 0.15s infinite;
+}
+.sound-bar-3 {
+  animation: soundBar 1.05s ease-in-out 0.3s infinite;
+}
+
+/* 커스텀 스크롤바 (데스크탑/태블릿 우측 패널용) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FAF8F5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8CFC2;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #B8A38F;
+}
