@@ -17,7 +17,7 @@ import { WEDDING_CONFIG } from "@/config/wedding";
 import { useToast } from "./ToastProvider";
 
 export function LocationSection() {
-  const [mapTab, setMapTab] = useState<"map" | "sketch">("map");
+  const [mapTab, setMapTab] = useState<"sketch" | "map">("sketch");
   const [sketchZoomOpen, setSketchZoomOpen] = useState(false);
   const { showToast } = useToast();
   const { venue } = WEDDING_CONFIG;
@@ -111,17 +111,6 @@ export function LocationSection() {
           <div className="grid grid-cols-2 border-b border-sand/80 bg-ivory/70 text-[12.5px] font-medium">
             <button
               type="button"
-              onClick={() => setMapTab("map")}
-              className={`py-3 transition ${
-                mapTab === "map"
-                  ? "bg-white text-sage-dark shadow-[inset_0_-2px_0_#5F6F60]"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              지도 보기
-            </button>
-            <button
-              type="button"
               onClick={() => setMapTab("sketch")}
               className={`py-3 transition ${
                 mapTab === "sketch"
@@ -130,6 +119,17 @@ export function LocationSection() {
               }`}
             >
               간편 약도
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapTab("map")}
+              className={`py-3 transition ${
+                mapTab === "map"
+                  ? "bg-white text-sage-dark shadow-[inset_0_-2px_0_#5F6F60]"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              지도 보기
             </button>
           </div>
 

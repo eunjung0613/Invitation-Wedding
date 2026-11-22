@@ -62,7 +62,7 @@ export function RsvpSection() {
   return (
     <section
       id="rsvp"
-      className="border-t border-sand/80 px-5 py-16 text-center sm:px-8 sm:py-20"
+      className="border-t border-sand/80 px-5 pt-16 pb-6 text-center sm:px-8 sm:pt-20 sm:pb-7"
     >
       <motion.div
         initial={{ opacity: 0, y: 20 }}

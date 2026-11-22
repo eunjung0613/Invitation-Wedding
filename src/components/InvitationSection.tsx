@@ -1,37 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { MessageSquare, Phone, X } from "lucide-react";
-import { WEDDING_CONFIG, type ContactPerson } from "@/config/wedding";
-import {
-  getDefaultWeddingSettings,
-  subscribeWeddingSettings,
-} from "@/lib/weddingStore";
-import { useToast } from "./ToastProvider";
+import { motion } from "framer-motion";
+import { WEDDING_CONFIG } from "@/config/wedding";
 
 export function InvitationSection() {
-  const [contactOpen, setContactOpen] = useState(false);
-  const [contacts, setContacts] = useState(
-    () => getDefaultWeddingSettings().contacts
-  );
-  const { showToast } = useToast();
   const { groom, bride } = WEDDING_CONFIG.couple;
-
-  useEffect(() => {
-    return subscribeWeddingSettings((settings) => {
-      setContacts(settings.contacts);
-    });
-  }, []);
-
-  const handleContactAction = (person: ContactPerson, type: "tel" | "sms") => {
-    const digits = person.phone.replace(/\D/g, "");
-    if (!digits) {
-      showToast(`${person.name}님의 연락처는 준비 중입니다.`);
-      return;
-    }
-    window.location.href = `${type}:${digits}`;
-  };
 
   return (
     <section
@@ -97,18 +70,6 @@ export function InvitationSection() {
             </p>
           </div>
         </div>
-
-        {/* 혼주에게 연락하기 버튼 */}
-        <div className="mt-7">
-          <button
-            type="button"
-            onClick={() => setContactOpen(true)}
-            className="inline-flex items-center gap-2 rounded-full border border-champagne/60 bg-white px-6 py-2.5 text-[13px] font-medium text-ink transition hover:border-sage hover:text-sage active:scale-[0.98]"
-          >
-            <Phone className="h-3.5 w-3.5 text-sage" />
-            <span>신랑 · 신부 및 혼주에게 연락하기</span>
-          </button>
-        </div>
       </motion.div>
 
       {/* 4컷 시네마틱 인터루드 (_15 -> photo-16.jpg) */}
@@ -117,7 +78,7 @@ export function InvitationSection() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-60px" }}
         transition={{ duration: 0.8 }}
-        className="mx-auto mt-14 max-w-[400px]"
+        className="mx-auto mt-12 max-w-[400px]"
       >
         <div className="overflow-hidden rounded-2xl border border-sand bg-white p-2 shadow-[0_12px_36px_rgba(44,42,39,0.06)]">
           <img
@@ -131,95 +92,6 @@ export function InvitationSection() {
           Running toward our spring together
         </figcaption>
       </motion.figure>
-
-      {/* 연락하기 모달 */}
-      <AnimatePresence>
-        {contactOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setContactOpen(false)}
-            className="fixed inset-0 z-[80] flex items-end justify-center bg-ink/50 p-4 backdrop-blur-xs sm:items-center"
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.98 }}
-              transition={{ duration: 0.24 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-[400px] overflow-hidden rounded-3xl bg-ivory shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-sand px-6 py-4">
-                <div className="text-left">
-                  <p className="font-editorial text-[11px] tracking-[0.26em] text-sage uppercase">
-                    Contact
-                  </p>
-                  <h3 className="font-batang text-[16px] text-ink">
-                    연락하기
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setContactOpen(false)}
-                  aria-label="닫기"
-                  className="rounded-full p-1.5 text-stone transition hover:bg-sand/60"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="max-h-[70vh] space-y-5 overflow-y-auto px-6 py-5 text-left">
-                {[
-                  { title: "신랑측", list: contacts.groomSide },
-                  { title: "신부측", list: contacts.brideSide },
-                ].map((group) => (
-                  <div key={group.title}>
-                    <p className="mb-2.5 text-[12px] font-medium tracking-wider text-sage">
-                      {group.title}
-                    </p>
-                    <div className="divide-y divide-sand/70 rounded-2xl border border-sand bg-white px-4">
-                      {group.list.map((person) => (
-                        <div
-                          key={`${group.title}-${person.role}`}
-                          className="flex items-center justify-between py-3"
-                        >
-                          <div>
-                            <span className="text-[11px] text-muted">
-                              {person.role}
-                            </span>
-                            <p className="font-batang text-[14.5px] text-ink">
-                              {person.name}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleContactAction(person, "tel")}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-linen text-sage transition hover:bg-sage hover:text-white"
-                              aria-label={`${person.name} 전화하기`}
-                            >
-                              <Phone className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleContactAction(person, "sms")}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-linen text-champagne transition hover:bg-champagne hover:text-white"
-                              aria-label={`${person.name} 문자 보내기`}
-                            >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </section>
   );
 }
