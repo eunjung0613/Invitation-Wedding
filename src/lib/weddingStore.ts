@@ -228,16 +228,16 @@ export async function saveWeddingSettings(
   return payload;
 }
 
-const DEFAULT_GUESTBOOK: GuestbookEntry[] = [
-  {
-    id: "welcome-1",
-    name: "호민 ♥ 은정",
-    message:
-      "저희의 소중한 봄날에 함께해 주시는 모든 분들께 감사드립니다. 따뜻한 축하 한마디 남겨주시면 오래오래 간직할게요!",
-    passwordHash: "system-pinned",
-    createdAt: new Date("2026-11-22T09:00:00+09:00").getTime(),
-  },
-];
+export const PINNED_WELCOME_GUESTBOOK: GuestbookEntry = {
+  id: "welcome-1",
+  name: "호민 ♥ 은정",
+  message:
+    "저희의 소중한 봄날에 함께해 주시는 모든 분들께 감사드립니다.\n따뜻한 축하 한마디 남겨주시면 오래오래 간직할게요!",
+  passwordHash: "system-pinned",
+  createdAt: new Date("2026-11-22T09:00:00+09:00").getTime(),
+};
+
+const DEFAULT_GUESTBOOK: GuestbookEntry[] = [PINNED_WELCOME_GUESTBOOK];
 
 export async function hashPassword(plain: string): Promise<string> {
   const clean = plain.trim();
@@ -292,6 +292,11 @@ function normalizeTimestamp(val: unknown): number {
 export function subscribeGuestbook(
   onUpdate: (entries: GuestbookEntry[]) => void
 ): Unsubscribe {
+  const withPinned = (rows: GuestbookEntry[]): GuestbookEntry[] => [
+    PINNED_WELCOME_GUESTBOOK,
+    ...rows.filter((r) => r.id !== PINNED_WELCOME_GUESTBOOK.id),
+  ];
+
   if (isFirebaseConfigured && db) {
     const q = query(collection(db, "guestbook"), orderBy("createdAt", "desc"));
     return onSnapshot(
@@ -307,17 +312,21 @@ export function subscribeGuestbook(
             createdAt: normalizeTimestamp(data.createdAt),
           };
         });
-        onUpdate(rows);
+        onUpdate(withPinned(rows));
       },
       () => {
-        onUpdate(readLocal<GuestbookEntry>(LS_GUESTBOOK, DEFAULT_GUESTBOOK));
+        onUpdate(
+          withPinned(readLocal<GuestbookEntry>(LS_GUESTBOOK, DEFAULT_GUESTBOOK))
+        );
       }
     );
   }
 
   const emit = () => {
     const rows = readLocal<GuestbookEntry>(LS_GUESTBOOK, DEFAULT_GUESTBOOK);
-    onUpdate([...rows].sort((a, b) => b.createdAt - a.createdAt));
+    onUpdate(
+      withPinned([...rows].sort((a, b) => b.createdAt - a.createdAt))
+    );
   };
   emit();
   const handler = () => emit();
