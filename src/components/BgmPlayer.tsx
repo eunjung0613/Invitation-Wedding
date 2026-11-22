@@ -55,13 +55,31 @@ export function BgmPlayer() {
   const [ytFailed, setYtFailed] = useState(false);
 
   const playerRef = useRef<YTPlayerInstance | null>(null);
-  const pendingPlayRef = useRef(false);
+  // 페이지 진입 시 기본 자동 재생 의도 유지 (사용자가 직접 일시정지 누르기 전까지)
+  const wantAutoPlayRef = useRef(true);
+  const isPlayingRef = useRef(false);
   const synthRef = useRef<SunlitWaltzSynth | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
     let mounted = true;
     const videoId = WEDDING_CONFIG.bgm.youtubeVideoId;
+
+    const tryAutoStart = () => {
+      if (!mounted || !wantAutoPlayRef.current || isPlayingRef.current) return;
+      if (playerRef.current) {
+        try {
+          playerRef.current.setVolume(65);
+          playerRef.current.playVideo();
+        } catch {
+          // autoplay blocked until first gesture
+        }
+      }
+    };
 
     const initPlayer = () => {
       if (!mounted || !window.YT?.Player || playerRef.current) return;
@@ -70,7 +88,7 @@ export function BgmPlayer() {
         width: 200,
         videoId,
         playerVars: {
-          autoplay: 0,
+          autoplay: 1,
           controls: 0,
           disablekb: 1,
           fs: 0,
@@ -88,9 +106,12 @@ export function BgmPlayer() {
             if (!mounted) return;
             e.target.setVolume(65);
             setYtReady(true);
-            if (pendingPlayRef.current) {
-              pendingPlayRef.current = false;
-              e.target.playVideo();
+            if (wantAutoPlayRef.current) {
+              try {
+                e.target.playVideo();
+              } catch {
+                // will start on first user gesture
+              }
             }
           },
           onStateChange: (e) => {
@@ -106,12 +127,6 @@ export function BgmPlayer() {
           onError: () => {
             if (!mounted) return;
             setYtFailed(true);
-            if (pendingPlayRef.current) {
-              pendingPlayRef.current = false;
-              if (!synthRef.current) synthRef.current = new SunlitWaltzSynth();
-              synthRef.current.start();
-              setIsPlaying(true);
-            }
           },
         },
       });
@@ -140,8 +155,30 @@ export function BgmPlayer() {
       }
     }
 
+    // 모바일/크롬 등 브라우저 자동재생 정책으로 즉시 재생이 차단된 경우,
+    // 화면의 첫 터치/클릭 순간 즉시 BGM이 시작되도록 자동 보조
+    const handleFirstInteraction = (ev: Event) => {
+      const target = ev.target as HTMLElement | null;
+      if (target?.closest('[data-bgm-toggle="true"]')) return;
+      if (!wantAutoPlayRef.current || isPlayingRef.current) return;
+      tryAutoStart();
+    };
+
+    window.addEventListener("pointerdown", handleFirstInteraction, {
+      passive: true,
+    });
+    window.addEventListener("touchstart", handleFirstInteraction, {
+      passive: true,
+    });
+    window.addEventListener("keydown", handleFirstInteraction, {
+      passive: true,
+    });
+
     return () => {
       mounted = false;
+      window.removeEventListener("pointerdown", handleFirstInteraction);
+      window.removeEventListener("touchstart", handleFirstInteraction);
+      window.removeEventListener("keydown", handleFirstInteraction);
       synthRef.current?.stop();
       try {
         playerRef.current?.destroy();
@@ -154,7 +191,7 @@ export function BgmPlayer() {
 
   const togglePlay = () => {
     if (isPlaying) {
-      pendingPlayRef.current = false;
+      wantAutoPlayRef.current = false;
       try {
         playerRef.current?.pauseVideo();
       } catch {
@@ -164,6 +201,8 @@ export function BgmPlayer() {
       setIsPlaying(false);
       return;
     }
+
+    wantAutoPlayRef.current = true;
 
     if (!ytFailed && playerRef.current && ytReady) {
       try {
@@ -176,15 +215,12 @@ export function BgmPlayer() {
       }
     }
 
-    // YouTube IFrame API가 아직 로딩 중이면 준비되자마자 자동 재생 예약
     if (!ytFailed) {
-      pendingPlayRef.current = true;
       setIsPlaying(true);
-      showToast("BGM 재생 준비 중...");
+      showToast("BGM 재생 중");
       return;
     }
 
-    // 오프라인 또는 임베드 제한 시 폴백
     if (!synthRef.current) {
       synthRef.current = new SunlitWaltzSynth();
     }
@@ -205,6 +241,7 @@ export function BgmPlayer() {
 
       <button
         type="button"
+        data-bgm-toggle="true"
         onClick={togglePlay}
         aria-label={isPlaying ? "배경음악 일시정지" : "배경음악 재생"}
         className="group flex items-center gap-1.5 rounded-full border border-white/40 bg-ivory/82 px-3 py-1.5 text-[11px] font-medium text-ink shadow-sm backdrop-blur-md transition-all hover:bg-white active:scale-95"

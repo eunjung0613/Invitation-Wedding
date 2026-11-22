@@ -1,13 +1,10 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
-  getDocs,
   onSnapshot,
   orderBy,
   query,
-  setDoc,
   type Unsubscribe,
 } from "firebase/firestore";
 import {
@@ -189,7 +186,8 @@ export function subscribeWeddingSettings(
 }
 
 export async function saveWeddingSettings(
-  settings: Omit<WeddingSettings, "updatedAt">
+  settings: Omit<WeddingSettings, "updatedAt">,
+  adminPassword = ""
 ): Promise<WeddingSettings> {
   const normalized = normalizeWeddingSettings({
     ...settings,
@@ -200,9 +198,27 @@ export async function saveWeddingSettings(
     updatedAt: Date.now(),
   };
 
-  if (isFirebaseConfigured && db) {
-    await setDoc(doc(db, "settings", "public"), payload);
-    return payload;
+  if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
+      },
+      body: JSON.stringify({
+        accounts: payload.accounts,
+        contacts: payload.contacts,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(
+        err.error || "계좌 및 연락처 저장에 실패했습니다."
+      );
+    }
+    const data = (await res.json()) as { settings?: WeddingSettings };
+    return normalizeWeddingSettings(data.settings ?? payload);
   }
 
   if (typeof window !== "undefined") {
@@ -337,17 +353,40 @@ export async function addGuestbookEntry(input: {
 export async function deleteGuestbookEntry(
   entry: GuestbookEntry,
   password: string,
-  isAdmin = false
+  isAdmin = false,
+  adminPassword = ""
 ): Promise<{ ok: boolean; reason?: string }> {
   if (!isAdmin) {
     const inputHash = await hashPassword(password);
     if (inputHash !== entry.passwordHash) {
       return { ok: false, reason: "비밀번호가 일치하지 않습니다." };
     }
-  }
 
-  if (isFirebaseConfigured && db) {
-    await deleteDoc(doc(db, "guestbook", entry.id));
+    if (isFirebaseConfigured) {
+      const res = await fetch("/api/guestbook/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, passwordHash: inputHash }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, reason: err.error || "삭제에 실패했습니다." };
+      }
+      return { ok: true };
+    }
+  } else if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
+      },
+      body: JSON.stringify({ collection: "guestbook", id: entry.id }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, reason: err.error || "삭제에 실패했습니다." };
+    }
     return { ok: true };
   }
 
@@ -391,33 +430,78 @@ export async function submitRsvp(input: {
   writeLocal(LS_RSVP, [{ id: `rsvp-${Date.now()}`, ...payload }, ...current]);
 }
 
-export async function fetchAllRsvps(): Promise<RsvpEntry[]> {
-  if (isFirebaseConfigured && db) {
-    const q = query(collection(db, "rsvp"), orderBy("createdAt", "desc"));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        side: (data.side === "bride" ? "bride" : "groom") as RsvpSide,
-        attendance: (data.attendance ?? "attending") as RsvpAttendance,
-        name: String(data.name ?? ""),
-        guestCount: Number(data.guestCount ?? 1),
-        meal: (data.meal ?? "yes") as RsvpMeal,
-        phone: String(data.phone ?? ""),
-        message: String(data.message ?? ""),
-        createdAt: normalizeTimestamp(data.createdAt),
-      };
+export async function fetchAdminDashboardData(adminPassword: string): Promise<{
+  rsvps: RsvpEntry[];
+  guestbook: GuestbookEntry[];
+  snaps: GuestSnapEntry[];
+  settings: WeddingSettings | null;
+}> {
+  if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "GET",
+      headers: { "x-admin-password": adminPassword },
+      cache: "no-store",
     });
+
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as {
+        code?: string;
+        error?: string;
+      };
+      const error = new Error(
+        err.error || "관리자 데이터를 불러오지 못했습니다."
+      ) as Error & { status?: number; code?: string };
+      error.status = res.status;
+      error.code = err.code;
+      throw error;
+    }
+
+    const data = (await res.json()) as {
+      rsvps: RsvpEntry[];
+      guestbook: GuestbookEntry[];
+      snaps: GuestSnapEntry[];
+      settings: unknown;
+    };
+
+    return {
+      rsvps: data.rsvps ?? [],
+      guestbook: data.guestbook ?? [],
+      snaps: data.snaps ?? [],
+      settings: data.settings ? normalizeWeddingSettings(data.settings) : null,
+    };
   }
-  return readLocal<RsvpEntry>(LS_RSVP, []).sort(
-    (a, b) => b.createdAt - a.createdAt
-  );
+
+  return {
+    rsvps: readLocal<RsvpEntry>(LS_RSVP, []).sort(
+      (a, b) => b.createdAt - a.createdAt
+    ),
+    guestbook: readLocal<GuestbookEntry>(LS_GUESTBOOK, DEFAULT_GUESTBOOK).sort(
+      (a, b) => b.createdAt - a.createdAt
+    ),
+    snaps: readLocal<GuestSnapEntry>(LS_SNAPS, []).sort(
+      (a, b) => b.createdAt - a.createdAt
+    ),
+    settings: readLocalSettings(),
+  };
 }
 
-export async function deleteRsvpEntry(id: string): Promise<void> {
-  if (isFirebaseConfigured && db) {
-    await deleteDoc(doc(db, "rsvp", id));
+export async function deleteRsvpEntry(
+  id: string,
+  adminPassword = ""
+): Promise<void> {
+  if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
+      },
+      body: JSON.stringify({ collection: "rsvp", id }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "RSVP 삭제에 실패했습니다.");
+    }
     return;
   }
   const current = readLocal<RsvpEntry>(LS_RSVP, []);
@@ -583,24 +667,23 @@ export async function deleteGuestSnap(
   entry: GuestSnapEntry,
   adminPassword = ""
 ): Promise<void> {
-  // Vercel Blob 이미지 파일도 함께 삭제
-  if (entry.imageUrl.startsWith("https://")) {
-    try {
-      await fetch("/api/guest-snaps", {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-password": adminPassword,
-        },
-        body: JSON.stringify({ url: entry.imageUrl }),
-      });
-    } catch {
-      // Blob 삭제 실패 시에도 DB 레코드 삭제는 진행
+  if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
+      },
+      body: JSON.stringify({
+        collection: "guestSnaps",
+        id: entry.id,
+        imageUrl: entry.imageUrl,
+      }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "하객 스냅 삭제에 실패했습니다.");
     }
-  }
-
-  if (isFirebaseConfigured && db) {
-    await deleteDoc(doc(db, "guestSnaps", entry.id));
     return;
   }
 

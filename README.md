@@ -53,7 +53,10 @@ npm run dev
 1. [Firebase 콘솔](https://console.firebase.google.com/)에서 새 프로젝트를 생성합니다 (무료 **Spark 요금제** 그대로 사용).
 2. 좌측 메뉴 **`빌드 > Firestore Database`** → **`데이터베이스 만들기`** → **`Standard 에디션`** → 위치 **`asia-northeast3 (서울)`** → 프로덕션 모드로 생성.
 3. 프로젝트 설정 > **내 앱 > 웹(`</>`) 앱 추가** 후 표시되는 `firebaseConfig` 6개 값을 `.env.local`(및 Vercel 환경 변수)에 입력합니다.
-4. Firestore `규칙` 탭에 `firestore.rules`를 적용합니다.
+4. Firestore `규칙` 탭에 `firestore.rules`를 붙여넣고 `게시`합니다.
+5. **관리자 서버 키 발급 (비밀번호만으로 `/admin` 운영용)**:
+   - Firebase 콘솔 **`프로젝트 설정 > 서비스 계정`** 탭 → **`새 비공개 키 생성`** 클릭 (JSON 파일 다운로드).
+   - 다운로드한 JSON 파일 내용을 그대로 복사해 Vercel **`Settings > Environment Variables`** 에 **`FIREBASE_SERVICE_ACCOUNT_KEY`** 이름으로 추가 후 `Redeploy`하세요.
 
 ### B. Vercel Blob 설정 (하객 스냅 사진 저장소 — 카드 불필요)
 1. [Vercel 대시보드](https://vercel.com/)에서 배포된 프로젝트 선택 → 상단 **`Storage`** 탭 클릭.

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   Camera,
   ClipboardList,
@@ -22,7 +23,7 @@ import {
   deleteGuestbookEntry,
   deleteGuestSnap,
   deleteRsvpEntry,
-  fetchAllRsvps,
+  fetchAdminDashboardData,
   getDefaultWeddingSettings,
   saveWeddingSettings,
   subscribeGuestbook,
@@ -50,11 +51,15 @@ const MEAL_LABELS: Record<RsvpEntry["meal"], string> = {
 };
 
 export default function AdminPage() {
-  const expectedPassword =
+  const localExpectedPassword =
     process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "0328";
 
   const [authenticated, setAuthenticated] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [serverNotice, setServerNotice] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<AdminTab>("rsvp");
   const [sideFilter, setSideFilter] = useState<"all" | "groom" | "bride">("all");
 
@@ -65,24 +70,42 @@ export default function AdminPage() {
     getDefaultWeddingSettings()
   );
   const [savingSettings, setSavingSettings] = useState(false);
-  const [loadingRsvp, setLoadingRsvp] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
   const { showToast } = useToast();
 
-  const loadRsvps = async () => {
-    setLoadingRsvp(true);
-    try {
-      const data = await fetchAllRsvps();
-      setRsvps(data);
-    } catch {
-      showToast("RSVP 데이터를 불러오지 못했습니다. Firebase 권한을 확인해 주세요.");
-    } finally {
-      setLoadingRsvp(false);
-    }
-  };
+  const loadDashboard = useCallback(
+    async (pw: string) => {
+      setLoadingData(true);
+      try {
+        const data = await fetchAdminDashboardData(pw);
+        setRsvps(data.rsvps);
+        setGuestbook(data.guestbook);
+        setSnaps(data.snaps);
+        if (data.settings) {
+          setSettingsForm(data.settings);
+        }
+        setServerNotice(null);
+      } catch (err) {
+        const typed = err as Error & { status?: number; code?: string };
+        if (typed.code === "ADMIN_SDK_NOT_CONFIGURED") {
+          setServerNotice(
+            "Vercel 환경 변수에 FIREBASE_SERVICE_ACCOUNT_KEY를 추가하고 Redeploy하면 RSVP 조회와 계좌·연락처 저장이 활성화됩니다."
+          );
+        } else {
+          showToast(
+            typed.message || "관리자 데이터를 불러오는 중 오류가 발생했습니다."
+          );
+        }
+      } finally {
+        setLoadingData(false);
+      }
+    },
+    [showToast]
+  );
 
   useEffect(() => {
-    if (!authenticated) return;
-    void loadRsvps();
+    if (!authenticated || isFirebaseConfigured) return;
+    // 로컬 미리보기 모드에서는 localStorage 변경을 실시간 구독
     const unsubGb = subscribeGuestbook(setGuestbook);
     const unsubSnaps = subscribeGuestSnaps(setSnaps);
     const unsubSettings = subscribeWeddingSettings(setSettingsForm);
@@ -91,17 +114,54 @@ export default function AdminPage() {
       unsubSnaps();
       unsubSettings();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput.trim() === expectedPassword) {
-      setAuthenticated(true);
-      setPasswordInput("");
+    const candidate = passwordInput.trim();
+    if (!candidate) return;
+
+    if (!isFirebaseConfigured) {
+      if (candidate === localExpectedPassword) {
+        setAdminPassword(candidate);
+        setAuthenticated(true);
+        setPasswordInput("");
+        void loadDashboard(candidate);
+        return;
+      }
+      showToast("관리자 비밀번호가 일치하지 않습니다.");
       return;
     }
-    showToast("관리자 비밀번호가 일치하지 않습니다.");
+
+    setLoggingIn(true);
+    try {
+      const data = await fetchAdminDashboardData(candidate);
+      setAdminPassword(candidate);
+      setAuthenticated(true);
+      setPasswordInput("");
+      setRsvps(data.rsvps);
+      setGuestbook(data.guestbook);
+      setSnaps(data.snaps);
+      if (data.settings) setSettingsForm(data.settings);
+      setServerNotice(null);
+    } catch (err) {
+      const typed = err as Error & { status?: number; code?: string };
+      if (typed.status === 401) {
+        showToast("관리자 비밀번호가 일치하지 않습니다.");
+      } else if (typed.code === "ADMIN_SDK_NOT_CONFIGURED") {
+        // 비밀번호 검증은 통과(501은 401 이후 발생)했으나 서비스 계정 키가 아직 미등록 상태
+        setAdminPassword(candidate);
+        setAuthenticated(true);
+        setPasswordInput("");
+        setServerNotice(
+          "비밀번호 인증은 성공했지만 Vercel 환경 변수에 FIREBASE_SERVICE_ACCOUNT_KEY가 아직 없습니다. 키를 추가하고 Redeploy해 주세요."
+        );
+      } else {
+        showToast(typed.message || "로그인 중 오류가 발생했습니다.");
+      }
+    } finally {
+      setLoggingIn(false);
+    }
   };
 
   const updateAccountField = (
@@ -141,14 +201,21 @@ export default function AdminPage() {
     e.preventDefault();
     setSavingSettings(true);
     try {
-      const saved = await saveWeddingSettings({
-        accounts: settingsForm.accounts,
-        contacts: settingsForm.contacts,
-      });
+      const saved = await saveWeddingSettings(
+        {
+          accounts: settingsForm.accounts,
+          contacts: settingsForm.contacts,
+        },
+        adminPassword
+      );
       setSettingsForm(saved);
       showToast("계좌번호와 연락처가 저장되어 청첩장에 즉시 반영되었습니다.");
-    } catch {
-      showToast("저장 중 오류가 발생했습니다. Firebase 관리자 권한을 확인해 주세요.");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "저장 중 오류가 발생했습니다.";
+      showToast(message);
     } finally {
       setSavingSettings(false);
     }
@@ -256,9 +323,10 @@ export default function AdminPage() {
             />
             <button
               type="submit"
-              className="w-full rounded-full bg-sage py-3 text-[13.5px] font-medium text-white transition hover:bg-sage-dark"
+              disabled={loggingIn}
+              className="w-full rounded-full bg-sage py-3 text-[13.5px] font-medium text-white transition hover:bg-sage-dark disabled:opacity-60"
             >
-              관리자 로그인
+              {loggingIn ? "확인 중..." : "관리자 로그인"}
             </button>
           </form>
 
@@ -296,25 +364,36 @@ export default function AdminPage() {
 
           <div className="flex items-center gap-2">
             <span
-              className={`rounded-full px-3 py-1 text-[11.5px] font-medium ${isFirebaseConfigured
-                ? "bg-sage/15 text-sage-dark"
-                : "bg-champagne/20 text-stone"
-                }`}
+              className={`rounded-full px-3 py-1 text-[11.5px] font-medium ${
+                isFirebaseConfigured
+                  ? "bg-sage/15 text-sage-dark"
+                  : "bg-champagne/20 text-stone"
+              }`}
             >
-              {isFirebaseConfigured ? "Firebase 실시간 연동 중" : "로컬 미리보기 모드"}
+              {isFirebaseConfigured
+                ? "Firebase 서버 연동 중"
+                : "로컬 미리보기 모드"}
             </span>
             <button
               type="button"
-              onClick={loadRsvps}
+              onClick={() => void loadDashboard(adminPassword)}
               className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-3.5 py-1.5 text-[12px] text-ink hover:border-sage"
             >
               <RefreshCw
-                className={`h-3.5 w-3.5 ${loadingRsvp ? "animate-spin" : ""}`}
+                className={`h-3.5 w-3.5 ${loadingData ? "animate-spin" : ""}`}
               />
               <span>새로고침</span>
             </button>
           </div>
         </div>
+
+        {/* 서비스 계정 키 미등록 안내 배너 */}
+        {serverNotice && (
+          <div className="mt-5 flex items-start gap-2.5 rounded-2xl border border-[#E5C5B8] bg-[#FDF6F2] px-4 py-3.5 text-[13px] text-[#8F4A3B]">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{serverNotice}</p>
+          </div>
+        )}
 
         {/* 요약 KPI 카드 */}
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -374,10 +453,11 @@ export default function AdminPage() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 transition sm:px-4 ${activeTab === tab.id
-                    ? "bg-sage text-white"
-                    : "text-stone hover:text-ink"
-                    }`}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 transition sm:px-4 ${
+                    activeTab === tab.id
+                      ? "bg-sage text-white"
+                      : "text-stone hover:text-ink"
+                  }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   <span>{tab.label}</span>
@@ -443,10 +523,11 @@ export default function AdminPage() {
                       <tr key={r.id} className="hover:bg-ivory/50">
                         <td className="px-4 py-3">
                           <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${r.side === "groom"
-                              ? "bg-sage/12 text-sage-dark"
-                              : "bg-champagne/20 text-ink"
-                              }`}
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              r.side === "groom"
+                                ? "bg-sage/12 text-sage-dark"
+                                : "bg-champagne/20 text-ink"
+                            }`}
                           >
                             {r.side === "groom" ? "신랑측" : "신부측"}
                           </span>
@@ -471,11 +552,19 @@ export default function AdminPage() {
                           <button
                             type="button"
                             onClick={async () => {
-                              await deleteRsvpEntry(r.id);
-                              setRsvps((prev) =>
-                                prev.filter((item) => item.id !== r.id)
-                              );
-                              showToast("응답이 삭제되었습니다.");
+                              try {
+                                await deleteRsvpEntry(r.id, adminPassword);
+                                setRsvps((prev) =>
+                                  prev.filter((item) => item.id !== r.id)
+                                );
+                                showToast("응답이 삭제되었습니다.");
+                              } catch (err) {
+                                showToast(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "삭제에 실패했습니다."
+                                );
+                              }
                             }}
                             className="rounded-lg p-1.5 text-muted hover:bg-linen hover:text-[#B86A5B]"
                             aria-label="삭제"
@@ -669,7 +758,9 @@ export default function AdminPage() {
                 >
                   <Save className="h-4 w-4" />
                   <span>
-                    {savingSettings ? "저장 중..." : "계좌 · 연락처 저장 및 즉시 반영"}
+                    {savingSettings
+                      ? "저장 중..."
+                      : "계좌 · 연락처 저장 및 즉시 반영"}
                   </span>
                 </button>
               </div>
@@ -697,7 +788,19 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={async () => {
-                      await deleteGuestbookEntry(entry, "", true);
+                      const res = await deleteGuestbookEntry(
+                        entry,
+                        "",
+                        true,
+                        adminPassword
+                      );
+                      if (!res.ok) {
+                        showToast(res.reason || "삭제에 실패했습니다.");
+                        return;
+                      }
+                      setGuestbook((prev) =>
+                        prev.filter((item) => item.id !== entry.id)
+                      );
                       showToast("방명록이 삭제되었습니다.");
                     }}
                     className="shrink-0 rounded-lg p-2 text-muted hover:bg-linen hover:text-[#B86A5B]"
@@ -749,8 +852,19 @@ export default function AdminPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            await deleteGuestSnap(snap, expectedPassword);
-                            showToast("하객 스냅이 삭제되었습니다.");
+                            try {
+                              await deleteGuestSnap(snap, adminPassword);
+                              setSnaps((prev) =>
+                                prev.filter((item) => item.id !== snap.id)
+                              );
+                              showToast("하객 스냅이 삭제되었습니다.");
+                            } catch (err) {
+                              showToast(
+                                err instanceof Error
+                                  ? err.message
+                                  : "삭제에 실패했습니다."
+                              );
+                            }
                           }}
                           className="rounded-lg p-1.5 text-muted hover:bg-linen hover:text-[#B86A5B]"
                           aria-label="스냅 삭제"
