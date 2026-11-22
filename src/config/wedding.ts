@@ -31,7 +31,7 @@ export const WEDDING_CONFIG = {
     title: "이호민 ♥ 김은정 결혼식에 초대합니다",
     description:
       "2027년 3월 28일 일요일 오후 1시 10분 · 규수당 문래점(SK리더스뷰 2층) 카이타스홀",
-    ogImage: "/images/wedding/og-preview.jpg",
+    ogImage: "/images/wedding/og-preview-v2.jpg",
   },
 
   /** 신랑 · 신부 및 양가 혼주 정보 */
