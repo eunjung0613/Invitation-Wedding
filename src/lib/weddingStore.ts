@@ -59,6 +59,14 @@ export interface GuestSnapEntry {
   createdAt: number;
 }
 
+export interface WeddingBackupPayload {
+  version: 1;
+  exportedAt: string;
+  settings: WeddingSettings | null;
+  rsvps: RsvpEntry[];
+  guestbook: GuestbookEntry[];
+}
+
 const LS_GUESTBOOK = "wedding_demo_guestbook_v1";
 const LS_RSVP = "wedding_demo_rsvp_v1";
 const LS_SNAPS = "wedding_demo_snaps_v1";
@@ -701,4 +709,92 @@ export async function deleteGuestSnap(
     LS_SNAPS,
     current.filter((item) => item.id !== entry.id)
   );
+}
+
+export async function restoreAdminBackupData(
+  backup: Partial<WeddingBackupPayload>,
+  adminPassword = ""
+): Promise<{ settings: boolean; rsvps: number; guestbook: number }> {
+  const normalizedSettings = backup.settings
+    ? normalizeWeddingSettings(backup.settings)
+    : null;
+  const rsvps = Array.isArray(backup.rsvps) ? backup.rsvps : [];
+  const guestbook = Array.isArray(backup.guestbook)
+    ? backup.guestbook.filter(
+        (g) => g.passwordHash !== "system-pinned" && g.id !== "welcome-1"
+      )
+    : [];
+
+  if (isFirebaseConfigured) {
+    const res = await fetch("/api/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
+      },
+      body: JSON.stringify({
+        settings: normalizedSettings
+          ? {
+              accounts: normalizedSettings.accounts,
+              contacts: normalizedSettings.contacts,
+            }
+          : null,
+        rsvps,
+        guestbook,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "데이터베이스 백업 복원에 실패했습니다.");
+    }
+
+    const data = (await res.json()) as {
+      restored?: { settings: boolean; rsvps: number; guestbook: number };
+    };
+    return (
+      data.restored ?? {
+        settings: Boolean(normalizedSettings),
+        rsvps: rsvps.length,
+        guestbook: guestbook.length,
+      }
+    );
+  }
+
+  let settingsRestored = false;
+  if (normalizedSettings && typeof window !== "undefined") {
+    const nextSettings: WeddingSettings = {
+      ...normalizedSettings,
+      updatedAt: Date.now(),
+    };
+    window.localStorage.setItem(LS_SETTINGS, JSON.stringify(nextSettings));
+    window.dispatchEvent(new CustomEvent(`local-sync:${LS_SETTINGS}`));
+    settingsRestored = true;
+  }
+
+  if (rsvps.length > 0) {
+    const existing = readLocal<RsvpEntry>(LS_RSVP, []);
+    const map = new Map<string, RsvpEntry>(existing.map((r) => [r.id, r]));
+    for (const r of rsvps) {
+      const id = r.id || `rsvp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      map.set(id, { ...r, id });
+    }
+    writeLocal(LS_RSVP, Array.from(map.values()));
+  }
+
+  if (guestbook.length > 0) {
+    const existing = readLocal<GuestbookEntry>(LS_GUESTBOOK, DEFAULT_GUESTBOOK);
+    const map = new Map<string, GuestbookEntry>(existing.map((g) => [g.id, g]));
+    for (const g of guestbook) {
+      const id = g.id || `gb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      map.set(id, { ...g, id });
+    }
+    writeLocal(LS_GUESTBOOK, Array.from(map.values()));
+  }
+
+  return {
+    settings: settingsRestored,
+    rsvps: rsvps.length,
+    guestbook: guestbook.length,
+  };
 }

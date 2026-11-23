@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -13,6 +13,7 @@ import {
   Save,
   Settings2,
   Trash2,
+  Upload,
   Wallet,
 } from "lucide-react";
 import { isFirebaseConfigured } from "@/lib/firebase";
@@ -21,11 +22,13 @@ import {
   deleteRsvpEntry,
   fetchAdminDashboardData,
   getDefaultWeddingSettings,
+  restoreAdminBackupData,
   saveWeddingSettings,
   subscribeGuestbook,
   subscribeWeddingSettings,
   type GuestbookEntry,
   type RsvpEntry,
+  type WeddingBackupPayload,
   type WeddingSettings,
 } from "@/lib/weddingStore";
 import { useToast } from "@/components/ToastProvider";
@@ -64,6 +67,8 @@ export default function AdminPage() {
   );
   const [savingSettings, setSavingSettings] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [restoringBackup, setRestoringBackup] = useState(false);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const { showToast } = useToast();
 
   const loadDashboard = useCallback(
@@ -96,7 +101,7 @@ export default function AdminPage() {
   );
 
   useEffect(() => {
-    if (!authenticated || isFirebaseConfigured) return;
+    if (!authenticated || (isFirebaseConfigured && !serverNotice)) return;
     const unsubGb = subscribeGuestbook((rows) =>
       setGuestbook(rows.filter((r) => r.passwordHash !== "system-pinned"))
     );
@@ -105,7 +110,7 @@ export default function AdminPage() {
       unsubGb();
       unsubSettings();
     };
-  }, [authenticated]);
+  }, [authenticated, serverNotice]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +177,12 @@ export default function AdminPage() {
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (serverNotice) {
+      showToast(
+        "Firebase 서버 키가 연결되지 않은 상태에서는 저장할 수 없습니다."
+      );
+      return;
+    }
     setSavingSettings(true);
     try {
       const saved = await saveWeddingSettings(
@@ -266,6 +277,91 @@ export default function AdminPage() {
     showToast("엑셀(CSV) 파일이 다운로드되었습니다.");
   };
 
+  /** 전체 DB(계좌 설정 · RSVP · 방명록) JSON 백업 다운로드 */
+  const exportDbBackup = () => {
+    const payload: WeddingBackupPayload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: settingsForm,
+      rsvps,
+      guestbook: guestbook.filter(
+        (g) => g.passwordHash !== "system-pinned" && g.id !== "welcome-1"
+      ),
+    };
+
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `이호민_김은정_DB백업_${new Date()
+      .toISOString()
+      .slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast("전체 데이터베이스 백업(JSON) 파일이 다운로드되었습니다.");
+  };
+
+  /** JSON 백업 파일 업로드 및 복원 */
+  const handleRestoreBackupFile = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<WeddingBackupPayload>;
+
+      const hasSettings = Boolean(parsed?.settings?.accounts);
+      const rsvpCount = Array.isArray(parsed?.rsvps) ? parsed.rsvps.length : 0;
+      const gbCount = Array.isArray(parsed?.guestbook)
+        ? parsed.guestbook.filter(
+            (g) => g?.passwordHash !== "system-pinned" && g?.id !== "welcome-1"
+          ).length
+        : 0;
+
+      if (!hasSettings && rsvpCount === 0 && gbCount === 0) {
+        showToast("복원할 수 있는 유효한 백업 데이터가 없습니다.");
+        return;
+      }
+
+      const summary = [
+        hasSettings ? "• 계좌번호 및 설정 복원" : null,
+        rsvpCount > 0 ? `• RSVP 응답 ${rsvpCount}건 병합 복원` : null,
+        gbCount > 0 ? `• 방명록 ${gbCount}건 병합 복원` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      if (
+        !window.confirm(
+          `선택한 백업 파일로 데이터베이스를 복원할까요?\n\n${summary}\n\n(기존 방명록·RSVP는 삭제되지 않고 안전하게 병합됩니다.)`
+        )
+      ) {
+        return;
+      }
+
+      setRestoringBackup(true);
+      const result = await restoreAdminBackupData(parsed, adminPassword);
+      await loadDashboard(adminPassword);
+      showToast(
+        `복원 완료 (계좌설정: ${result.settings ? "반영" : "없음"}, RSVP ${result.rsvps}건, 방명록 ${result.guestbook}건)`
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "백업 파일을 읽거나 복원하는 중 오류가 발생했습니다."
+      );
+    } finally {
+      setRestoringBackup(false);
+    }
+  };
+
   if (!authenticated) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-ivory px-4">
@@ -333,7 +429,7 @@ export default function AdminPage() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span
               className={`rounded-full px-3 py-1 text-[11.5px] font-medium ${isFirebaseConfigured
                   ? "bg-sage/15 text-sage-dark"
@@ -344,6 +440,32 @@ export default function AdminPage() {
                 ? "Firebase 서버 연동 중"
                 : "로컬 미리보기 모드"}
             </span>
+            <button
+              type="button"
+              onClick={exportDbBackup}
+              className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-3.5 py-1.5 text-[12px] text-ink hover:border-sage"
+              title="계좌번호 · RSVP · 방명록 전체를 JSON 파일로 다운로드"
+            >
+              <Download className="h-3.5 w-3.5 text-sage" />
+              <span>DB 백업</span>
+            </button>
+            <button
+              type="button"
+              disabled={restoringBackup || Boolean(serverNotice)}
+              onClick={() => backupFileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-full border border-sand bg-white px-3.5 py-1.5 text-[12px] text-ink hover:border-sage disabled:opacity-50"
+              title="백업한 JSON 파일을 업로드해 데이터베이스 복원"
+            >
+              <Upload className="h-3.5 w-3.5 text-sage" />
+              <span>{restoringBackup ? "복원 중..." : "DB 복원"}</span>
+            </button>
+            <input
+              ref={backupFileInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={handleRestoreBackupFile}
+              className="hidden"
+            />
             <button
               type="button"
               onClick={() => void loadDashboard(adminPassword)}

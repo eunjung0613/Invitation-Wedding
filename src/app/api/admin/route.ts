@@ -149,3 +149,144 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
+function isSafeDocId(id: unknown): id is string {
+  return (
+    typeof id === "string" &&
+    id.trim().length > 0 &&
+    id.trim().length <= 128 &&
+    !id.includes("/")
+  );
+}
+
+export async function POST(request: NextRequest) {
+  const pw = request.headers.get("x-admin-password");
+  if (!verifyAdminPassword(pw)) return unauthorized();
+
+  const db = getAdminDb();
+  if (!db) return notConfigured();
+
+  try {
+    const body = (await request.json()) as {
+      settings?: { accounts?: unknown; contacts?: unknown } | null;
+      rsvps?: Array<Record<string, unknown>>;
+      guestbook?: Array<Record<string, unknown>>;
+    };
+
+    const hasSettings = Boolean(body?.settings?.accounts);
+    const rsvpList = Array.isArray(body?.rsvps) ? body.rsvps : [];
+    const guestbookList = Array.isArray(body?.guestbook) ? body.guestbook : [];
+
+    if (!hasSettings && rsvpList.length === 0 && guestbookList.length === 0) {
+      return NextResponse.json(
+        { error: "복원할 백업 데이터가 없습니다." },
+        { status: 400 }
+      );
+    }
+
+    let restoredSettings = false;
+    let restoredRsvps = 0;
+    let restoredGuestbook = 0;
+
+    if (hasSettings && body.settings?.accounts) {
+      await db.collection("settings").doc("public").set({
+        accounts: body.settings.accounts,
+        contacts: body.settings.contacts ?? { groomSide: [], brideSide: [] },
+        updatedAt: Date.now(),
+      });
+      restoredSettings = true;
+    }
+
+    const writeDocsInBatches = async (
+      collectionName: "rsvp" | "guestbook",
+      entries: Array<{ id?: string; data: Record<string, unknown> }>
+    ) => {
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        const chunk = entries.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        for (const item of chunk) {
+          const ref = item.id
+            ? db.collection(collectionName).doc(item.id)
+            : db.collection(collectionName).doc();
+          batch.set(ref, item.data, { merge: true });
+        }
+        await batch.commit();
+      }
+    };
+
+    const normalizedRsvps: Array<{ id?: string; data: Record<string, unknown> }> = [];
+    for (const item of rsvpList) {
+      const name = String(item?.name ?? "").trim().slice(0, 30);
+      if (!name) continue;
+      const side = item.side === "bride" ? "bride" : "groom";
+      const attendance = ["attending", "declined", "undecided"].includes(
+        String(item.attendance)
+      )
+        ? String(item.attendance)
+        : "attending";
+      const meal = ["yes", "no", "undecided"].includes(String(item.meal))
+        ? String(item.meal)
+        : "yes";
+      normalizedRsvps.push({
+        id: isSafeDocId(item.id) ? item.id.trim() : undefined,
+        data: {
+          side,
+          attendance,
+          name,
+          guestCount: Math.max(1, Math.min(20, Number(item.guestCount) || 1)),
+          meal,
+          phone: String(item.phone ?? "").trim().slice(0, 30),
+          message: String(item.message ?? "").trim().slice(0, 300),
+          createdAt: normalizeTs(item.createdAt),
+        },
+      });
+    }
+    if (normalizedRsvps.length > 0) {
+      await writeDocsInBatches("rsvp", normalizedRsvps);
+      restoredRsvps = normalizedRsvps.length;
+    }
+
+    const normalizedGuestbook: Array<{
+      id?: string;
+      data: Record<string, unknown>;
+    }> = [];
+    for (const item of guestbookList) {
+      if (item?.passwordHash === "system-pinned" || item?.id === "welcome-1") {
+        continue;
+      }
+      const name = String(item?.name ?? "").trim().slice(0, 30);
+      const message = String(item?.message ?? "").trim().slice(0, 500);
+      if (!name || !message) continue;
+      normalizedGuestbook.push({
+        id: isSafeDocId(item.id) ? item.id.trim() : undefined,
+        data: {
+          name,
+          message,
+          passwordHash:
+            String(item.passwordHash ?? "").trim().slice(0, 128) || "restored",
+          createdAt: normalizeTs(item.createdAt),
+        },
+      });
+    }
+    if (normalizedGuestbook.length > 0) {
+      await writeDocsInBatches("guestbook", normalizedGuestbook);
+      restoredGuestbook = normalizedGuestbook.length;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      restored: {
+        settings: restoredSettings,
+        rsvps: restoredRsvps,
+        guestbook: restoredGuestbook,
+      },
+    });
+  } catch (err) {
+    console.error("[POST /api/admin]", err);
+    return NextResponse.json(
+      { error: "백업 복원 중 오류가 발생했습니다." },
+      { status: 500 }
+    );
+  }
+}

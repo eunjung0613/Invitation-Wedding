@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { motion } from "framer-motion";
-import { Link2, Lock, Share2 } from "lucide-react";
+import { Link2, Share2 } from "lucide-react";
 import { WEDDING_CONFIG } from "@/config/wedding";
 import { useToast } from "./ToastProvider";
 
@@ -102,16 +101,6 @@ export function FooterSection() {
             <Link2 className="h-3.5 w-3.5 text-sage" />
             <span>링크 복사</span>
           </button>
-        </div>
-
-        <div className="mt-6">
-          <Link
-            href="/admin"
-            className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] text-muted/80 transition hover:bg-linen hover:text-stone"
-          >
-            <Lock className="h-3 w-3" />
-            <span>신랑·신부 관리</span>
-          </Link>
         </div>
       </div>
     </footer>
